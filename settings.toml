@@ -1,0 +1,5 @@
+# You should include the following paths in your .secrets.toml file
+# Dont put them here unless you want them checked into version control
+
+# INPUT_FOLDER = "/home/user/folder1"
+# OUTPUT_FOLDER = "/home/user/folder2"
