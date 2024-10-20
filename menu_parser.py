@@ -1,7 +1,10 @@
 import time
 import csv
+import requests
 from operator import itemgetter
 from pathlib import Path
+
+import requests.auth
 from config import settings
 from jmt_utils import write_dict_to_file
 from jmt_utils import write_list_to_file
@@ -277,20 +280,27 @@ def attendance_one_off():
     print(f"Created file: {saved_file}")
 
 
-def clean_attendance_export_file(csv_file_name_without_extention):
+def clean_attendance_export_file(
+    csv_file_name_without_extension,
+    valid_styles=["Shirudo Hybrid", "SHIRUDO Little Ninja's"],
+):
     """Imports an attendacnce output file and removes entries with 0 attendance. File looks like:
 
     Contact ID,First Name,Last Name,Member Number,Age,Attendances (Last 30 days)
     123456,John,Doe,,,3
 
+    Contact ID,First Name,Last Name,Member Number,Age,Attendances (Last 30 days),Current Rank,Style,Date of Birth
+
     """
 
-    full_path = Path(settings.INPUT_FOLDER) / f"{csv_file_name_without_extention}.csv"
-    print(f"Input file is:\n{full_path}")
+    full_path = Path(settings.INPUT_FOLDER) / f"{csv_file_name_without_extension}.csv"
+    print(f"Input file for clean import is :\n{full_path}")
 
     student_list = list()
+    student_dict = {}
     id_list = list()
     count_zeroes = 0
+    count_other_styles = 0
     data_headers = list()
     row_count = 0
 
@@ -300,39 +310,53 @@ def clean_attendance_export_file(csv_file_name_without_extention):
             row_count += 1
             if row_count == 1:
                 data_headers = each_row
-                assert data_headers[0] == "Contact ID", "Invalid data headers"
+                assert data_headers[0] == "Contact ID", f"Invalid: [{data_headers[0]}]"
                 assert data_headers[5].startswith("Attendances"), "Invalid data headers"
             else:
                 student_attendances = int(each_row[5])
                 if student_attendances:
                     student_id = each_row[0]
-                    assert student_id not in id_list, f"Duplicate ID: {student_id}"
-                    id_list.append(student_id)
+
                     student_name = f"{each_row[1]} {each_row[2]}"
-                    this_student = {
-                        "ID": student_id,
-                        "name": student_name,
-                        "attendances": student_attendances,
-                    }
-                    student_list.append(this_student)
+                    student_rank = each_row[6].strip()
+                    student_style = each_row[7].strip()
+                    student_dob = each_row[8].strip()
+                    if student_style in valid_styles:
+                        assert student_id not in id_list, f"Duplicate ID: {student_id}"
+                        id_list.append(student_id)
+                        this_student = {
+                            "ID": student_id,
+                            "name": student_name,
+                            "attendances": student_attendances,
+                            "style": student_style,
+                            "rank": student_rank,
+                            "dob": student_dob,
+                        }
+                        student_list.append(this_student)
+                        student_dict["student_id"] = this_student
+                    else:
+                        print(f"Skipping student from {student_style} : {student_name}")
+                        count_other_styles += 1
                 else:
                     count_zeroes += 1
 
     print(
-        f"Finished with {len(student_list)} students ({count_zeroes} with no attendance)"
+        f"Finished with {len(student_list)} students ({count_zeroes} with no attendance and {count_other_styles} from other styles)"
     )
 
     full_path = (
-        Path(settings.OUTPUT_FOLDER) / f"{csv_file_name_without_extention}_filtered.csv"
+        Path(settings.OUTPUT_FOLDER) / f"{csv_file_name_without_extension}_filtered.csv"
     )
     sorted_list = sorted(student_list, key=itemgetter("attendances"), reverse=True)
 
     print(f"Output file is:\n{full_path}")
     write_list_to_file(sorted_list, full_path)
 
+    return student_dict
+
 
 def read_student_data(student_data_file_without_extention):
-    """Reads the master student data"""
+    """Reads the master student data - our compiled data"""
 
     full_path = (
         Path(settings.INPUT_FOLDER) / f"{student_data_file_without_extention}.csv"
@@ -365,8 +389,38 @@ def read_student_data(student_data_file_without_extention):
                 student["Family"] = each_row[header_index["Family"]].strip()
 
                 student_dict[student_ID] = student
+                # print(f"Student: [{student_ID}] -read as [{student["Name"]}]")
 
     return student_dict
+
+
+def read_attendance_file(csv_file_name_without_extention):
+    """Imports an already processed attendance file. File looks like:
+
+    1455548,Some Name,11
+    """
+
+    full_path = Path(settings.INPUT_FOLDER) / f"{csv_file_name_without_extention}.csv"
+    print(f"Input file is:\n{full_path}")
+
+    student_list = dict()
+    id_list = list()
+
+    with open(full_path, "r") as input_file:
+        csv_reader = csv.reader(input_file)
+        for each_row in csv_reader:
+            student_id = each_row[0].strip()
+            student_name = each_row[1].strip()
+            student_attendances = int(each_row[2])
+            assert student_id not in id_list, f"Duplicate ID: {student_id}"
+            id_list.append(student_id)
+            student_list[student_id] = {
+                "Name": student_name,
+                "Attendances": student_attendances,
+            }
+            # print(f"[{student_id}] is [{student_list[student_id]}]")
+
+    return student_list
 
 
 def do_one_off():
@@ -374,14 +428,49 @@ def do_one_off():
     # grading_list_one_off()
     # attendance_one_off()
 
-    # input_file_name = settings.REPORT_365_day
-    # clean_attendance_export_file(input_file_name)
-
     input_file_name = settings.MEMBER_DATA_CSV
     student_data = read_student_data(input_file_name)
     print(f"Read {len(student_data)} entries from student database csv file")
+
+    input_file_name = settings.REPORT_30_day
+    attendance_data = clean_attendance_export_file(input_file_name)
+    print(
+        f"Read attendance data for {len(attendance_data)} students from: {input_file_name}"
+    )
+
+    for att_id, att_data in attendance_data.items():
+        if att_id in student_data:
+            style_curr = student_data.get("Style", False)
+            style_attn = att_data.get("Style", False)
+            if style_attn:
+                if style_curr:
+                    assert style_curr == style_attn, f"Style mismatch for ID {att_id}"
+                else:
+                    print(f"Missing style info for ID {att_id}")
+            else:
+                print(f"No style info for student ID {att_id} - {att_data['name']}")
+
+        else:
+            print(f"Missing data for student: [{att_id}] - [{att_data['name']}]")
+
+
+def get_clubworx_user_data(user_id=False):
+    """Reads student data from the clubworx web page"""
+
+    member_url = settings.CLUBWORX_URL_MEMBER.replace("MEMBER_ID", user_id)
+    req_auth = requests.auth.HTTPBasicAuth(
+        settings.CLUBWORX_USER, settings.CLUBWORX_CRED
+    )
+
+    req_response = requests.get(member_url, auth=req_auth)
+    req_text = req_response.text
+    print(req_response)
+    print(req_text)
+
+    print("All done")
 
 
 if __name__ == "__main__":
     # start_menu()
     do_one_off()
+    # get_clubworx_user_data("1950710")
