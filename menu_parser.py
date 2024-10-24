@@ -335,13 +335,16 @@ def clean_attendance_export_file(
                         student_list.append(this_student)
                         student_dict["student_id"] = this_student
                     else:
-                        print(f"Skipping student from {student_style} : {student_name}")
                         count_other_styles += 1
+                        print(
+                            f"Skipping student {count_other_styles:02} from style:'{student_style}' , {student_name} , {student_attendances} attendances"
+                        )
+
                 else:
                     count_zeroes += 1
 
     print(
-        f"Finished with {len(student_list)} students ({count_zeroes} with no attendance and {count_other_styles} from other styles)"
+        f"Finished with {len(student_list)} students from styles:{valid_styles}, skipping({count_zeroes} with zero attendance and {count_other_styles} from other styles)"
     )
 
     full_path = (
@@ -432,7 +435,7 @@ def do_one_off():
     student_data = read_student_data(input_file_name)
     print(f"Read {len(student_data)} entries from student database csv file")
 
-    input_file_name = settings.REPORT_30_day
+    input_file_name = settings.REPORT_365_day
     attendance_data = clean_attendance_export_file(input_file_name)
     print(
         f"Read attendance data for {len(attendance_data)} students from: {input_file_name}"
