@@ -457,6 +457,93 @@ def do_one_off():
             print(f"Missing data for student: [{att_id}] - [{att_data['name']}]")
 
 
+def add_rank_column():
+    """Reads a csv file, calculating a rank and adding an extra column"""
+
+    input_file_name = (
+        Path(settings.INPUT_FOLDER) / f"{settings.REPORT_365_day}_filtered.csv"
+    )
+    output_file_name = (
+        Path(settings.INPUT_FOLDER) / f"{settings.REPORT_365_day}_combined_ranked.csv"
+    )
+
+    user_data = dict()
+
+    with open(input_file_name, "r") as input_file:
+
+        count_input = 0
+        for each_line in input_file.readlines():
+            output_line = list()
+            raw_parts = each_line.split(",")
+            for each_part in raw_parts:
+                clean_part = each_part.strip()
+                output_line.append(each_part)
+            grading_part = raw_parts[5]
+            if "kyu" in grading_part.lower():
+                grade = int(grading_part[0:1])
+            elif "provisional black" in grading_part.lower():
+                grade = 0
+            elif "dan" in grading_part.lower():
+                grade = int(grading_part[0:1]) * -1
+            else:
+                assert False, f"Unhandled: {grading_part} from {each_line}"
+                print("Unhandled")
+            output_line.append(grade)
+            print(f"{output_line} - {grading_part}")
+            user_id = raw_parts[0].strip()
+            user_dict = dict()
+            user_dict["name"] = raw_parts[1].strip()
+            user_dict["classes_365"] = raw_parts[2].strip()
+            user_dict["style"] = raw_parts[3].strip()
+            user_dict["dob"] = raw_parts[4].strip()
+            user_dict["text_rank"] = raw_parts[5].strip()
+            user_dict["sort_rank"] = grade
+            user_dict["classes_30"] = 0
+            user_data[user_id] = user_dict
+
+    input_file_name = (
+        Path(settings.INPUT_FOLDER) / f"{settings.REPORT_30_day}_filtered.csv"
+    )
+    with open(input_file_name, "r") as input_file:
+
+        count_input = 0
+        for each_line in input_file.readlines():
+            output_line = list()
+            raw_parts = each_line.split(",")
+            user_id = raw_parts[0].strip()
+            user_classes = int(raw_parts[2].strip())
+            assert user_id in user_data.keys(), f"Missing user: {user_id}"
+            user_data[user_id]["classes_30"] = user_classes
+
+    formatted_list = list()
+    formatted_list.append(
+        [
+            "id",
+            "name",
+            "style",
+            "dob",
+            "text-rank",
+            "sort-rank",
+            "classes_365",
+            "classes_30",
+        ]
+    )
+
+    for user_id, user_detail in user_data.items():
+        this_line = list()
+        this_line.append(user_id)
+        this_line.append(user_detail["name"])
+        this_line.append(user_detail["style"])
+        this_line.append(user_detail["dob"])
+        this_line.append(user_detail["text_rank"])
+        this_line.append(user_detail["sort_rank"])
+        this_line.append(user_detail["classes_365"])
+        this_line.append(user_detail["classes_30"])
+        formatted_list.append(this_line)
+
+    output_ok = write_list_to_file(formatted_list, output_file_name)
+
+
 def get_clubworx_user_data(user_id=False):
     """Reads student data from the clubworx web page"""
 
@@ -475,5 +562,6 @@ def get_clubworx_user_data(user_id=False):
 
 if __name__ == "__main__":
     # start_menu()
-    do_one_off()
+    # do_one_off()
+    add_rank_column()
     # get_clubworx_user_data("1950710")
