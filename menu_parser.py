@@ -284,7 +284,7 @@ def clean_attendance_export_file(
     csv_file_name_without_extension,
     valid_styles=["Shirudo Hybrid", "SHIRUDO Little Ninja's"],
 ):
-    """Imports an attendacnce output file and removes entries with 0 attendance. File looks like:
+    """Imports an attendance output file and removes entries with 0 attendance. File looks like:
 
     Contact ID,First Name,Last Name,Member Number,Age,Attendances (Last 30 days)
     123456,John,Doe,,,3
@@ -544,6 +544,86 @@ def add_rank_column():
     output_ok = write_list_to_file(formatted_list, output_file_name)
 
 
+def read_member_data_into_dict(file_path):
+    """Reads a file into dictionary of members, with Id as porimary key, and dictionary for each member
+    based on headers in the file
+    """
+
+    result_dict = dict()
+
+    with open(file_path, "r") as input_file:
+
+        count_input = 0
+        count_comp = 0
+        id_set_input = set()
+        id_set_com = set()
+        header_columns = list()
+        id_column = -1
+
+        for each_line in input_file.readlines():
+            if count_input == 0:  # get headers
+                raw_headers = [
+                    each_header.strip() for each_header in each_line.split(",")
+                ]
+                assert (
+                    "Contact ID" in raw_headers or "id" in raw_headers
+                ), f"Missing contact ID in {raw_headers}"
+                count_headers = 0
+                # print(f"Headers: {raw_headers}")
+                for clean_header in raw_headers:
+                    if clean_header in ["Contact ID", "Contact_ID"]:  # Rename columns
+                        clean_header = "id"
+                    header_columns.append(clean_header)
+                    if clean_header == "id":
+                        id_column = count_headers
+                    count_headers += 1
+
+            else:  # process a line
+                raw_parts = [each_part.strip() for each_part in each_line.split(",")]
+                this_member_data = dict()
+                assert id_column >= 0, "Missing ID column"
+                this_member_id = raw_parts[id_column]
+                column_id = 0
+                for each_part in raw_parts:
+                    this_member_data[header_columns[column_id]] = each_part
+                    column_id += 1
+                result_dict[this_member_id] = this_member_data
+            count_input += 1
+
+        return result_dict
+
+
+def compare_member_lists():
+    """Treats one file as sreference and compares with another in terms of membership"""
+
+    ref_file_name = Path(settings.INPUT_FOLDER) / f"{settings.SUMMARY_CURRENT}.csv"
+    comp_file_name = Path(settings.INPUT_FOLDER) / f"{settings.SUMMARY_COMPARISON}.csv"
+
+    user_data_ref = read_member_data_into_dict(ref_file_name)
+    print(f"Read {len(user_data_ref)} entries from {ref_file_name}")
+
+    user_data_comp = read_member_data_into_dict(comp_file_name)
+    print(f"Read {len(user_data_comp)} entries from {comp_file_name}")
+
+    count_ok = 0
+    for user_id, user_data in user_data_ref.items():
+        if user_id not in user_data_comp:
+            print(f"Missing {user_id} - {user_data['name']} in comparison")
+        else:
+            count_ok += 1
+    print(f"Matched {count_ok} of {len(user_data_ref)}")
+
+    count_ok = 0
+    for user_id, user_data in user_data_comp.items():
+        if user_id not in user_data_ref:
+            print(
+                f"Missing {user_id} - {user_data['First Name']} {user_data['Last Name']} in reference"
+            )
+        else:
+            count_ok += 1
+    print(f"Matched {count_ok} of {len(user_data_comp)}")
+
+
 def get_clubworx_user_data(user_id=False):
     """Reads student data from the clubworx web page"""
 
@@ -563,5 +643,6 @@ def get_clubworx_user_data(user_id=False):
 if __name__ == "__main__":
     # start_menu()
     # do_one_off()
-    add_rank_column()
+    # add_rank_column()
+    compare_member_lists()
     # get_clubworx_user_data("1950710")
