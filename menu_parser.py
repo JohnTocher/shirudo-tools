@@ -303,6 +303,7 @@ def clean_attendance_export_file(
     count_other_styles = 0
     data_headers = list()
     row_count = 0
+    print_single_record = True
 
     with open(full_path, "r") as input_file:
         csv_reader = csv.reader(input_file)
@@ -334,6 +335,9 @@ def clean_attendance_export_file(
                         }
                         student_list.append(this_student)
                         student_dict["student_id"] = this_student
+                        if print_single_record:
+                            print_single_record = False
+                            print(f"Record: {this_student}")
                     else:
                         count_other_styles += 1
                         print(
@@ -458,7 +462,12 @@ def do_one_off():
 
 
 def add_rank_column():
-    """Reads a csv file, calculating a rank and adding an extra column"""
+    """Reads a csv file, calculating a rank and adding an extra column
+
+    Imports the 365 day filtered report, then the 30 day report
+    Producing a single output file
+
+    """
 
     input_file_name = (
         Path(settings.INPUT_FOLDER) / f"{settings.REPORT_365_day}_filtered.csv"
@@ -544,7 +553,7 @@ def add_rank_column():
     output_ok = write_list_to_file(formatted_list, output_file_name)
 
 
-def read_member_data_into_dict(file_path):
+def read_member_data_into_dict(file_path, expecting_id=True):
     """Reads a file into dictionary of members, with Id as porimary key, and dictionary for each member
     based on headers in the file
     """
@@ -562,12 +571,14 @@ def read_member_data_into_dict(file_path):
 
         for each_line in input_file.readlines():
             if count_input == 0:  # get headers
+                count_input += 1
                 raw_headers = [
                     each_header.strip() for each_header in each_line.split(",")
                 ]
-                assert (
-                    "Contact ID" in raw_headers or "id" in raw_headers
-                ), f"Missing contact ID in {raw_headers}"
+                if expecting_id:
+                    assert (
+                        "Contact ID" in raw_headers or "id" in raw_headers
+                    ), f"Missing contact ID in {raw_headers}"
                 count_headers = 0
                 # print(f"Headers: {raw_headers}")
                 for clean_header in raw_headers:
@@ -581,20 +592,24 @@ def read_member_data_into_dict(file_path):
             else:  # process a line
                 raw_parts = [each_part.strip() for each_part in each_line.split(",")]
                 this_member_data = dict()
-                assert id_column >= 0, "Missing ID column"
-                this_member_id = raw_parts[id_column]
+                if expecting_id:
+                    assert id_column >= 0, "Missing ID column"
+                    this_member_id = raw_parts[id_column]
+                else:
+                    this_member_id = f"auto_id_{count_input}"
                 column_id = 0
                 for each_part in raw_parts:
                     this_member_data[header_columns[column_id]] = each_part
                     column_id += 1
                 result_dict[this_member_id] = this_member_data
-            count_input += 1
+                # print(f"{result_dict}")
+                count_input += 1
 
         return result_dict
 
 
 def compare_member_lists():
-    """Treats one file as sreference and compares with another in terms of membership"""
+    """Treats one file as reference and compares with another in terms of membership"""
 
     ref_file_name = Path(settings.INPUT_FOLDER) / f"{settings.SUMMARY_CURRENT}.csv"
     comp_file_name = Path(settings.INPUT_FOLDER) / f"{settings.SUMMARY_COMPARISON}.csv"
@@ -640,9 +655,50 @@ def get_clubworx_user_data(user_id=False):
     print("All done")
 
 
+def prepare_grading_data():
+    """Performs the data processing for grading preparation"""
+
+    source_raw_30 = settings.REPORT_30_day
+    source_raw_365 = settings.REPORT_365_day
+
+    clean_30 = clean_attendance_export_file(
+        source_raw_30,
+    )
+    print(f"Have {len(clean_30.keys())} entries from 30 day report")
+
+    clean_365 = clean_attendance_export_file(
+        source_raw_365,
+    )
+    print(f"Have {len(clean_365.keys())} entries from 365 day report")
+
+    # Now fill in the missing IDs from the clubworx file from Paul
+    clubworx_from_paul = (
+        Path(settings.INPUT_FOLDER) / "grading_2024-11-26_from_Paul.csv"
+    )
+    data_from_paul = read_member_data_into_dict(clubworx_from_paul, expecting_id=False)
+
+    for gen_id, raw_data in data_from_paul.items():
+        found_id = False
+        print(f"Looking for id for: {gen_id}:{raw_data["Member"]}")
+        for student_id, student_data in clean_365.items():
+            if student_data["name"].lower() == raw_data["Member"].lower():
+                print(f"Found: {student_data['ID']} for {student_data['name']}")
+                found_id = True
+                break
+        # assert found_id, f"Couldn't find id for: {gen_id}:{raw_data["Member"]}"
+        if found_id:
+            pass
+            # print(f"Found: {gen_id}:{raw_data["Member"]}")
+        else:
+            print(f"Couldn't find id for: {gen_id}:{raw_data["Member"]}")
+
+    print(f"Have {len(data_from_paul)} lines from Paul")
+
+
 if __name__ == "__main__":
     # start_menu()
     # do_one_off()
     # add_rank_column()
-    compare_member_lists()
+    # compare_member_lists()
     # get_clubworx_user_data("1950710")
+    prepare_grading_data()
